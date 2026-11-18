@@ -33,7 +33,7 @@ Der Anwendungsfall: Ein Kreis im Kamerabild wird grün, sobald ein Reifen richti
 
 ## Ausprobieren
 
-**Online:** `https://<org>.github.io/tirenet-browser-demo/` auf dem Handy öffnen, dann „Kamera starten“.
+**Online:** **<https://ifahrentholz.de/tirenet-browser-demo/>** auf dem Handy öffnen, dann „Kamera starten“.
 Das Handy auf ein Autorad richten. Am Desktop gehen die Beispielfotos oder ein eigenes Foto.
 
 **Lokal:**
