@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>TireNet – Reifenerkennung im Browser</title>
+  <style>
+    :root { --orange: #f5a400; --green: #3fb34f; --text: #1a1a1a; --muted: #6b6b6b; }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html, body { margin: 0; background: #fff; color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    .app { max-width: 480px; margin: 0 auto; min-height: 100dvh; display: flex; flex-direction: column; }
+    header { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; font-size: 14px; }
+    header button { background: none; border: 0; font-size: 26px; line-height: 1; padding: 0; cursor: pointer; }
+    header span { color: var(--muted); }
+
+    .stage { position: relative; width: 100%; aspect-ratio: 375 / 505; background: #222; overflow: hidden; }
+    .stage video, .stage img.testimg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    .stage svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    .ring { fill: none; stroke: var(--orange); stroke-width: 2.5; transition: stroke .15s; }
+    .ok .ring { stroke: var(--green); stroke-width: 3; }
+    .badge { opacity: 0; transition: opacity .15s; }
+    .ok .badge { opacity: 1; }
+    .dbgbox { fill: none; stroke: #00e5ff; stroke-width: 1.5; stroke-dasharray: 4 3; }
+    .dbglabel { fill: #00e5ff; font-size: 11px; font-family: ui-monospace, monospace; }
+    .hint { position: absolute; left: 0; right: 0; bottom: 8px; text-align: center; color: #fff; font-size: 13px; text-shadow: 0 1px 3px #000; }
+
+    main { padding: 24px 16px 16px; text-align: center; }
+    h1 { font-size: 20px; margin: 0 0 12px; }
+    p.lead { color: var(--muted); margin: 0 auto 20px; max-width: 280px; line-height: 1.45; }
+    .shutter { width: 76px; height: 76px; border-radius: 50%; border: 4px solid var(--orange); background: #fff; box-shadow: inset 0 0 0 4px #fff, inset 0 0 0 6px var(--orange); cursor: pointer; font-size: 26px; }
+    .shutter:active { transform: scale(.96); }
+
+    .debug { margin: 8px 16px 24px; padding: 10px 12px; background: #f4f4f4; border-radius: 8px; font: 12px/1.5 ui-monospace, monospace; text-align: left; }
+    .debug .row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+    .debug label { display: inline-flex; gap: 4px; align-items: center; }
+    .debug output { font-weight: 600; }
+    .err { color: #c00; white-space: pre-wrap; }
+    .shot { margin: 0 16px 24px; }
+    .shot img { width: 100%; border-radius: 8px; }
+    .start { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; color: #fff; text-align: center; padding: 24px; }
+    .start button { background: var(--orange); color: #000; border: 0; border-radius: 6px; padding: 10px 16px; font-weight: 600; font-size: 15px; cursor: pointer; }
+    .start label { font-size: 13px; text-decoration: underline; cursor: pointer; }
+    .start small { opacity: .8; font-size: 12px; max-width: 260px; }
+    .examples { display: flex; gap: 6px; margin-top: 4px; }
+    .examples button { background: none; border: 1px solid #fff6; border-radius: 6px; padding: 0; width: 46px; height: 66px; overflow: hidden; cursor: pointer; }
+    .examples img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  </style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <button aria-label="Neu laden" onclick="location.reload()">&#8635;</button>
+    <span>TireNet-Demo · läuft komplett im Browser</span>
+  </header>
+
+  <div class="stage" id="stage">
+    <video id="video" playsinline muted autoplay></video>
+    <img id="testimg" class="testimg" alt="" hidden>
+    <svg id="overlay" aria-hidden="true">
+      <defs>
+        <mask id="hole"><rect width="100%" height="100%" fill="white"/><circle id="holeCircle" fill="black"/></mask>
+      </defs>
+      <rect width="100%" height="100%" fill="rgba(0,0,0,.35)" mask="url(#hole)"/>
+      <circle id="ring" class="ring"/>
+      <g id="badge" class="badge">
+        <circle r="13" fill="var(--green)"/>
+        <path d="M-6 0 l4 4 l8 -8" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      </g>
+      <g id="dbg"></g>
+    </svg>
+    <div class="hint" id="hint" aria-live="polite"></div>
+    <div class="start" id="start">
+      <button id="btnStart">Kamera starten</button>
+      <small>Kein Bild verlässt das Gerät – die Erkennung läuft lokal.</small>
+      <label for="fileInput">… oder eigenes Foto laden</label>
+      <input id="fileInput" type="file" accept="image/*" hidden>
+      <small>Beispielfotos:</small>
+      <div class="examples" id="examples">
+        <button data-src="./examples/auto-4.jpg" aria-label="Beispiel 1"><img src="./examples/auto-4.jpg" alt=""></button>
+        <button data-src="./examples/auto-5.jpg" aria-label="Beispiel 2"><img src="./examples/auto-5.jpg" alt=""></button>
+        <button data-src="./examples/auto-6.jpg" aria-label="Beispiel 3"><img src="./examples/auto-6.jpg" alt=""></button>
+        <button data-src="./examples/auto-7.jpg" aria-label="Beispiel 4"><img src="./examples/auto-7.jpg" alt=""></button>
+      </div>
+    </div>
+  </div>
+
+  <main>
+    <h1>Fotografieren Sie Ihren Reifen</h1>
+    <p class="lead">Der Reifen muss innerhalb des Rahmens positioniert werden.</p>
+    <button class="shutter" id="shutter" aria-label="Foto aufnehmen">&#128247;</button>
+  </main>
+
+  <section class="debug" id="debug">
+    <div class="row">
+      <span>Backend <output id="oBackend">–</output></span>
+      <span>Modell <output id="oModel">–</output></span>
+    </div>
+    <div class="row">
+      <span>Inferenz <output id="oInf">–</output> ms</span>
+      <span>FPS <output id="oFps">–</output></span>
+      <span>Quelle <output id="oVideo">–</output></span>
+    </div>
+    <div class="row">
+      <span>Erkannt <output id="oBest">–</output></span>
+      <span>Mitte <output id="oCenter">–</output></span>
+      <span>Größe <output id="oSize">–</output></span>
+      <span>Status <output id="oState">–</output></span>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <label><input type="checkbox" id="chkBoxes" checked> Box anzeigen</label>
+      <label>min. Konfidenz <input type="range" id="rConf" min="0.1" max="0.95" step="0.05" value="0.8"> <output id="oConf">0.8</output></label>
+    </div>
+    <div class="err" id="err"></div>
+  </section>
+
+  <section class="shot" id="shot" hidden>
+    <p style="font:12px ui-monospace,monospace" id="shotInfo"></p>
+    <img id="shotImg" alt="Aufgenommenes Foto">
+  </section>
+</div>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
