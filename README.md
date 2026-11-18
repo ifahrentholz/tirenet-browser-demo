@@ -1,298 +1,298 @@
-# TireNet – Reifenerkennung live im Browser
+# TireNet – Live Tire Detection in the Browser
 
-Dieses Repo zeigt zwei Dinge:
+**English** · [Deutsch](README.de.md)
 
-1. **Ein eigenes Bilderkennungsmodell, selbst trainiert mit Hilfe von KI.** Claude Code hat Trainingsdaten
-   ausgewählt, das Modell gebaut, trainiert und ausgewertet. Das ging lizenzsauber, ohne ML-Vorwissen auf unserer
-   Seite und in gut 30 Minuten.
-2. **Wie dieses Modell auf einer Website läuft.** Es ist eine einzige Datei (4,3 MB) und wird mit ein paar
-   Zeilen JavaScript direkt im Browser ausgeführt, ohne Server, ohne App und ohne dass ein Bild das Gerät verlässt.
+This repo shows two things:
 
-Der Anwendungsfall: Ein Kreis im Kamerabild wird grün, sobald ein Reifen richtig darin sitzt.
+1. **A custom image recognition model, trained with the help of AI.** Claude Code selected the training data,
+   built, trained and evaluated the model. License-clean, without any prior machine learning experience, in just
+   over 30 minutes.
+2. **How that model runs on a website.** It is a single file (4.3 MB), executed directly in the browser with a few
+   lines of JavaScript. No server, no app, and no image ever leaves the device.
 
-<p align="center"><img src="docs/screenshot.jpg" width="320" alt="Demo: Reifen im Kreis erkannt, Kreis grün mit Häkchen"></p>
+The use case: a circle in the camera view turns green as soon as a tire sits correctly inside it.
 
-> **Status:** Machbarkeits-Demo, nicht für Produktion. Die Grenzen stehen weiter unten.
+<p align="center"><img src="docs/screenshot.jpg" width="320" alt="Demo: tire detected inside the circle, circle green with check mark"></p>
 
----
-
-## Inhalt
-
-1. [Ausprobieren](#ausprobieren)
-2. [Ausgangslage](#ausgangslage)
-3. [Der Weg – und was Claude Code dabei gemacht hat](#der-weg)
-4. **Teil 1 – Das Modell selbst trainieren**
-   - [Was die KI dafür gemacht hat](#was-die-ki-für-das-training-gemacht-hat)
-   - [Das Modell](#das-modell) · [Trainingsdaten](#trainingsdaten) · [Ergebnisse](#ergebnisse) · [Selbst trainieren](#selbst-trainieren)
-5. **Teil 2 – Das Modell auf der Website**
-   - [Vom Modell zur Website in drei Schritten](#vom-modell-zur-website-in-drei-schritten)
-   - [Wie die Demo-Seite funktioniert](#wie-die-demo-seite-funktioniert)
-6. [Grenzen und offene Punkte](#grenzen-und-offene-punkte) · [Projektstruktur](#projektstruktur) · [Lizenzen und Quellen](#lizenzen-und-quellen)
+> **Status:** Feasibility demo, not for production. See the limitations further down.
+> The demo UI is in German, as it was built for a German-speaking client project.
 
 ---
 
-## Ausprobieren
+## Contents
 
-**Online:** **<https://ifahrentholz.de/tirenet-browser-demo/>** auf dem Handy öffnen, dann „Kamera starten“.
-Das Handy auf ein Autorad richten. Am Desktop gehen die Beispielfotos oder ein eigenes Foto.
+1. [Try it](#try-it)
+2. [Background](#background)
+3. [The journey – and what Claude Code did](#the-journey)
+4. **Part 1 – Training the model**
+   - [What the AI did for the training](#what-the-ai-did-for-the-training)
+   - [The model](#the-model) · [Training data](#training-data) · [Results](#results) · [Train it yourself](#train-it-yourself)
+5. **Part 2 – The model on the website**
+   - [From model to website in three steps](#from-model-to-website-in-three-steps)
+   - [How the demo page works](#how-the-demo-page-works)
+6. [Limitations and open points](#limitations-and-open-points) · [Project structure](#project-structure) · [Licenses and sources](#licenses-and-sources)
 
-**Lokal:**
+---
+
+## Try it
+
+**Online:** open **<https://ifahrentholz.de/tirenet-browser-demo/>** on your phone, then tap "Kamera starten"
+(start camera) and point the phone at a car wheel. On desktop, use the example photos or upload your own.
+
+**Locally:**
 
 ```bash
 node server.mjs          # http://localhost:8080
 ```
 
-Für den Test mit dem Handy im gleichen WLAN braucht die Seite HTTPS, sonst gibt der Browser die Kamera nicht frei.
-Dafür einmal ein selbstsigniertes Zertifikat erzeugen. Danach öffnet `server.mjs` zusätzlich Port 8443:
+To test with a phone on the same Wi-Fi, the page needs HTTPS, otherwise the browser won't grant camera access.
+Create a self-signed certificate once; `server.mjs` then also opens port 8443:
 
 ```bash
 mkdir -p cert && openssl req -x509 -newkey rsa:2048 -nodes -days 30 \
   -keyout cert/key.pem -out cert/cert.pem -subj "/CN=tirenet-demo" \
   -addext "subjectAltName=IP:$(ipconfig getifaddr en0),DNS:localhost"
-node server.mjs          # Handy: https://<LAN-IP>:8443 → Zertifikatswarnung bestätigen
+node server.mjs          # phone: https://<LAN-IP>:8443 → accept the certificate warning
 ```
 
-Das Debug-Panel unter dem Auslöser zeigt Inferenzzeit, FPS, Konfidenz sowie Abweichung von Mitte und Größe.
+The debug panel below the shutter button shows inference time, FPS, confidence and the deviation from center and size.
 
 ---
 
-## Ausgangslage
+## Background
 
-Ein Kundenprojekt im Reifenhandel: Nutzer sollen auf der **Website** (keine App) ihren Reifen fotografieren.
-Das Foto geht dann an einen Erkennungsdienst, der Reifengröße, DOT-Nummer usw. ausliest. Das Design verlangt:
+A client project in tire retail: users should photograph their tire on the **website** (not in an app). The photo
+is then sent to a recognition service that reads tire size, DOT number etc. The design requires:
 
-1. **Kamerabild und eigenes Website-UI gleichzeitig.** Die Kamera läuft in einem Bereich der Seite, darum herum
-   Überschrift, Text und Auslöser.
-2. **Live-Feedback.** Ein Kreis zeigt, wo der Reifen hin soll. Sitzt der Reifen richtig, wird der Kreis **grün
-   mit Häkchen**.
+1. **Camera view and custom website UI at the same time.** The camera runs in one area of the page, surrounded by
+   headline, text and shutter button.
+2. **Live feedback.** A circle shows where the tire should be. Once the tire is positioned correctly, the circle
+   turns **green with a check mark**.
 
-Punkt 1 ist Standard-Web (`getUserMedia`, `<video>` plus SVG-Overlay). Spannend war Punkt 2: Der
-Erkennungsdienst braucht pro Foto 3–12 Sekunden in der Cloud. Für ein Live-Feedback mit 10+ Bildern pro Sekunde
-muss die Erkennung also **auf dem Gerät** laufen.
+Point 1 is standard web (`getUserMedia`, `<video>` plus an SVG overlay). Point 2 was the interesting part: the
+recognition service takes 3–12 seconds per photo in the cloud. Live feedback at 10+ frames per second therefore
+requires recognition **on the device**.
 
-## Der Weg
+## The journey
 
-Alles passierte in einer einzigen Claude-Code-Sitzung. Die Uhrzeiten stammen aus dem Sitzungsprotokoll.
+Everything happened in a single Claude Code session. Times are taken from the session log.
 
-| Zeit | Unser Input (sinngemäß) | Was Claude Code gemacht hat |
+| Time | Input to Claude (paraphrased) | What Claude Code did |
 | --- | --- | --- |
-| 13:30 | „Prüf das Ticket auf Machbarkeit: Kamera plus eigenes UI, Kreis wird grün, wenn der Reifen drin ist.“ | Ticket per CLI gelesen, API-Doku des Erkennungsdienstes ausgewertet, Machbarkeit und Risiken zusammengefasst. Ergebnis: Live-Erkennung braucht ein kleines Modell im Browser. |
-| 15:10 | „Mach mal eine Webrecherche, ob es so ein Modell nicht schon gibt.“ | Ergebnis: Es gibt Modelle mit der Klasse „Tire“ (Open Images V7). Die fertigen sind aber **AGPL-3.0** (Ultralytics) und damit für ein kommerzielles Shop-Frontend problematisch. |
-| 15:18 | „Ja, Prototyp zuerst.“ | Testseite mit Kamera, Kreismaske und YOLOv8n per ONNX Runtime Web gebaut, lokaler HTTPS-Server dazu. |
-| 15:28 | iPhone-Screenshots zurückgeschickt | **10 Minuten später lief es auf dem iPhone:** ~50 ms pro Bild, ~15 FPS, Kreis wird grün. |
-| 15:40 | „Hier die Testbilder vom echten Auto.“ | Fotos ausgewertet und die Regel für Mitte und Größe nachjustiert. |
-| 16:12 | „Wir haben ein Lizenzproblem. Macht es Sinn, dass du das Modell selbst trainierst?“ → „Ja, starten.“ | Daten-Pipeline (Open Images), eigenes Modell, Training, Export und Vergleich mit dem AGPL-Modell. |
-| ~16:45 | – | **Eigenes Modell fertig und im Browser:** 4,3 MB, ~5 ms pro Bild, lizenzsauber. |
-| nächster Tag | Test auf dem iPhone | Funktioniert. |
+| 13:30 | "Check the ticket for feasibility: camera plus custom UI, circle turns green when the tire is inside." | Read the ticket via CLI, analyzed the recognition service's API docs, summarized feasibility and risks. Result: live detection needs a small model in the browser. |
+| 15:10 | "Do a web search – surely such a model already exists?" | Result: there are models with a "Tire" class (Open Images V7). But the ready-made ones are **AGPL-3.0** (Ultralytics), which is problematic for a commercial shop frontend. |
+| 15:18 | "Yes, prototype first." | Built a test page with camera, circle mask and YOLOv8n via ONNX Runtime Web, plus a local HTTPS server. |
+| 15:28 | Sent back iPhone screenshots | **Running on the iPhone 10 minutes later:** ~50 ms per frame, ~15 FPS, circle turns green. |
+| 15:40 | "Here are the test photos from a real car." | Analyzed the photos and fine-tuned the center/size rule. |
+| 16:12 | "There's a license problem. Does it make sense for you to train the model yourself?" → "Yes, go." | Data pipeline (Open Images), custom model, training, export and comparison with the AGPL model. |
+| ~16:45 | – | **Custom model done and running in the browser:** 4.3 MB, ~5 ms per frame, license-clean. |
+| next day | Test on the iPhone | Works. |
 
-**Was wir Menschen beigetragen haben:** die Anforderung, die Entscheidungen (Prototyp zuerst, dann eigenes Modell),
-die Tests am echten Handy und am echten Auto sowie die Frage nach den Lizenzen.
-**Was Claude Code gemacht hat:** Recherche, sämtlicher Code (Web, Datenpipeline, Training, Export, Auswertung),
-das Training selbst und die ehrliche Auswertung, inklusive der Stellen, an denen das eigene Modell schlechter ist.
+**The human part:** the requirement, the decisions (prototype first, then a custom model), testing on a real phone
+and a real car, and raising the licensing question.
+**What Claude Code did:** research, all of the code (web, data pipeline, training, export, evaluation), the training
+itself and an honest evaluation, including where the custom model performs worse.
 
-Es wurde keine Zeile von Hand geschrieben. ML-Vorwissen war nicht nötig, um die Ergebnisse zu bewerten:
-Claude hat die Kennzahlen eingeordnet und Abbruchkriterien vorgeschlagen.
+Not a single line was written by hand. No machine learning background was needed to judge the results either:
+Claude put the metrics into context and proposed stop criteria.
 
 ---
 
-# Teil 1 – Das Modell selbst trainieren
+# Part 1 – Training the model
 
-## Was die KI für das Training gemacht hat
+## What the AI did for the training
 
-Unser Auftrag an Claude Code war im Kern ein Satz: *„Macht es Sinn, dass du das Modell selbst trainierst?“* und
-danach *„Ja, starten.“* Den Rest hat Claude selbstständig erledigt und dabei Zwischenergebnisse und Entscheidungen
-erklärt:
+The instruction to Claude Code boiled down to one sentence, *"Does it make sense for you to train the model
+yourself?"*, followed by *"Yes, go."* Claude handled the rest on its own, explaining intermediate results and
+decisions along the way:
 
-1. **Problem eingrenzen.** Statt eines allgemeinen Objektdetektors genügt ein Modell, das nur den Ausschnitt um
-   den Kreis sieht und sagt: „Reifen ja/nein, und wo genau“. Das macht es klein, schnell und leicht zu trainieren.
-2. **Daten beschaffen.** Ein frei lizenzierter Datensatz mit Reifen-Annotationen (Open Images) wurde ausgewählt.
-   Dazu kamen gezielt „Fallen“, also runde Dinge wie Uhren, Teller oder Pizzen, damit nicht alles Runde grün wird.
-   Ein Skript lädt die Bilder (`fetch_data.py`).
-3. **Trainingsbeispiele erzeugen.** Aus den Fotos werden Ausschnitte erzeugt, die die Situation „Handy vor Rad“
-   nachstellen. Ein Drittel davon sind bewusst Grenzfälle (Reifen knapp zu groß, knapp daneben).
-4. **Modell bauen und trainieren.** Ein vortrainiertes MobileNetV3-Small mit eigenem Ausgabekopf, trainiert in
-   ~20 Minuten auf dem MacBook (`train.py`).
-5. **Labels prüfen.** Ein Bildraster der Trainingsbeispiele mit eingezeichneten Boxen
-   ([`docs/label-check.jpg`](docs/label-check.jpg)) bestätigt, dass die Daten stimmen.
-6. **Exportieren** als ONNX-Datei für den Browser (`export.py`), inklusive Gegenprobe PyTorch ↔ ONNX.
-7. **Auswerten.** Das Modell wurde gegen ein fertiges Referenzmodell und an echten Handyfotos getestet
-   (`evaluate.py`). Die Schwächen hat Claude dabei offen benannt.
+1. **Narrow down the problem.** Instead of a general object detector, a model that only looks at the crop around
+   the circle and answers "tire yes/no, and where exactly" is enough. That makes it small, fast and easy to train.
+2. **Get the data.** A freely licensed dataset with tire annotations (Open Images) was selected, plus deliberate
+   "traps": round things like clocks, plates or pizzas, so that not everything round turns green. A script
+   downloads the images (`fetch_data.py`).
+3. **Generate training examples.** Crops are generated from the photos that recreate the "phone in front of a
+   wheel" situation. A third of them are deliberately borderline cases (tire slightly too big, slightly off-center).
+4. **Build and train the model.** A pre-trained MobileNetV3-Small with a custom output head, trained in ~20 minutes
+   on a MacBook (`train.py`).
+5. **Check the labels.** A grid of training examples with drawn boxes
+   ([`docs/label-check.jpg`](docs/label-check.jpg)) confirms that the data is correct.
+6. **Export** as an ONNX file for the browser (`export.py`), including a PyTorch ↔ ONNX cross-check.
+7. **Evaluate.** The model was tested against a ready-made reference model and on real phone photos
+   (`evaluate.py`). Claude openly pointed out the weaknesses.
 
-Ein paar Zwischenprobleme hat Claude unterwegs selbst gelöst. Zum Beispiel enthielt der erste
-Validierungsdatensatz zu wenige Grün-Fälle, um die Grün-Entscheidung sinnvoll zu messen. Claude hat das bemerkt
-und die Erzeugung der Grenzfälle ergänzt.
+Claude solved a few intermediate problems on its own along the way. For example, the first validation set contained
+too few "green" cases to measure the green decision meaningfully. Claude noticed this and added the generation of
+borderline cases.
 
-## Das Modell
+## The model
 
-[`train/train.py`](train/train.py), Klasse `TireNet`:
+[`train/train.py`](train/train.py), class `TireNet`:
 
-| Teil | Details |
+| Part | Details |
 | --- | --- |
-| Backbone | torchvision **MobileNetV3-Small** (BSD-3), ImageNet-vortrainiert, ganz feinjustiert |
-| Kopf | AvgPool → Linear(576→256) → Hardswish → Dropout → Linear(256→5) |
-| Eingabe | RGB 224×224, Werte 0..1 (Normalisierung steckt im Modell) |
-| Ausgabe | `p` (Sigmoid), `cx, cy` (−0,3…1,3, darf aus dem Bild ragen), `w, h` (0…1,5), alles relativ zum Ausschnitt |
-| Loss | BCE für `p` + 5 × SmoothL1 für die Box (nur bei positiven Beispielen) |
-| Training | AdamW + OneCycle, Batch 64, 12 Epochen × 12.000 Ausschnitte, **~20 min auf einem MacBook M3 Pro (MPS)** |
-| Export | ONNX opset 17, 4,3 MB, Abweichung PyTorch↔ONNX < 1e-6 |
+| Backbone | torchvision **MobileNetV3-Small** (BSD-3), ImageNet pre-trained, fully fine-tuned |
+| Head | AvgPool → Linear(576→256) → Hardswish → Dropout → Linear(256→5) |
+| Input | RGB 224×224, values 0..1 (normalization is built into the model) |
+| Output | `p` (sigmoid), `cx, cy` (−0.3…1.3, may extend beyond the crop), `w, h` (0…1.5), all relative to the crop |
+| Loss | BCE for `p` + 5 × SmoothL1 for the box (positive examples only) |
+| Training | AdamW + OneCycle, batch 64, 12 epochs × 12,000 crops, **~20 min on a MacBook M3 Pro (MPS)** |
+| Export | ONNX opset 17, 4.3 MB, PyTorch↔ONNX deviation < 1e-6 |
 
-## Trainingsdaten
+## Training data
 
-Quelle: [Open Images V7](https://storage.googleapis.com/openimages/web/index.html) (Annotationen CC BY 4.0, Bilder CC BY 2.0).
-[`train/fetch_data.py`](train/fetch_data.py) lädt:
+Source: [Open Images V7](https://storage.googleapis.com/openimages/web/index.html) (annotations CC BY 4.0, images CC BY 2.0).
+[`train/fetch_data.py`](train/fetch_data.py) downloads:
 
-| | Training | Validierung |
+| | Training | Validation |
 | --- | --- | --- |
-| Bilder mit Reifen/Rad (Box ≥ 15 % der Bildseite, keine Gruppen, keine Zeichnungen) | 5.000 | 1.198 |
-| Bilder ohne Fahrzeugbezug | 1.500 | 400 |
-| „harte“ Negative: runde Dinge (Uhr, Teller, Ball, Pizza, Donut …) | 1.000 | 200 |
+| Images with tire/wheel (box ≥ 15 % of image side, no groups, no depictions) | 5,000 | 1,198 |
+| Images without any vehicle | 1,500 | 400 |
+| "Hard" negatives: round things (clock, plate, ball, pizza, doughnut …) | 1,000 | 200 |
 
-Insgesamt ~9.300 Bilder, auf max. 640 px verkleinert, ~730 MB. Die Trainingsbeispiele entstehen erst beim
-Training: zufällige quadratische Ausschnitte, die die Situation „Handy vor Rad“ nachstellen.
+About 9,300 images in total, downscaled to max. 640 px, ~730 MB. The training examples are generated on the fly
+during training: random square crops that recreate the "phone in front of a wheel" situation.
 
-- 35 % Ausschnitte um einen Reifen mit beliebiger Größe und Verschiebung
-- 30 % **Grenzfälle:** Reifen fast passend, knapp zu groß, knapp daneben. Hier entscheidet sich grün oder orange.
-- 15 % zufällige Ausschnitte aus Reifenbildern, 20 % aus Negativbildern
-- Augmentierung: Spiegeln, Helligkeit, Kontrast, Farbe, Unschärfe, schwarze Seitenbalken (Hochformat-Video)
+- 35 % crops around a tire with arbitrary size and offset
+- 30 % **borderline cases:** tire almost fitting, slightly too big, slightly off. This is where green vs. orange is decided.
+- 15 % random crops from tire images, 20 % from negative images
+- Augmentation: flip, brightness, contrast, color, blur, black side bars (portrait video)
 
-Eine Kontrolle der Labels per Augenschein liegt in [`docs/label-check.jpg`](docs/label-check.jpg).
+A visual spot check of the labels is in [`docs/label-check.jpg`](docs/label-check.jpg).
 
-## Ergebnisse
+## Results
 
-Auswertung mit [`train/evaluate.py`](train/evaluate.py). Als Referenz dient ein fertiges, öffentlich verfügbares
-Modell (YOLOv8n auf Open Images V7, AGPL-3.0), das im Prototyp zuerst lief. Es ist nicht in diesem Repo enthalten.
+Evaluated with [`train/evaluate.py`](train/evaluate.py). The reference is a ready-made, publicly available model
+(YOLOv8n on Open Images V7, AGPL-3.0) that ran in the first prototype. It is not included in this repo.
 
-| | **TireNet (eigenes)** | YOLOv8n-OIV7 (Referenz) |
+| | **TireNet (custom)** | YOLOv8n-OIV7 (reference) |
 | --- | --- | --- |
-| Lizenz | BSD-3-Backbone + eigenes Training | AGPL-3.0 |
-| Modellgröße | **4,3 MB** | 14 MB |
-| Inferenz CPU, 1 Thread | **4,5 ms** | 37 ms |
-| Inferenz Browser (MacBook M3 Pro) | **~5 ms** (4 Threads), ~7 ms (1 Thread) | – |
-| Inferenz Browser (iPhone) | ⟨Werte vom iPhone-Test eintragen⟩ | ~50 ms, ~15 FPS |
-| Reifen erkannt ja/nein (3.000 Validierungsausschnitte) | **95,1 %** | 76,4 % |
-| Box-Genauigkeit (mittlere IoU) | **0,68** | 0,55 |
-| Entscheidung grün/orange korrekt | 93,9 % | **95,7 %** |
-| Grün, obwohl gar kein Reifen da ist (Schwelle 0,8) | **0** | 0 |
-| Echte Handyfotos, je 3 Varianten | 11/12 | **12/12** |
+| License | BSD-3 backbone + own training | AGPL-3.0 |
+| Model size | **4.3 MB** | 14 MB |
+| Inference CPU, 1 thread | **4.5 ms** | 37 ms |
+| Inference browser (MacBook M3 Pro) | **~5 ms** (4 threads), ~7 ms (1 thread) | – |
+| Inference browser (iPhone) | ⟨add values from iPhone test⟩ | ~50 ms, ~15 FPS |
+| Tire present yes/no (3,000 validation crops) | **95.1 %** | 76.4 % |
+| Box accuracy (mean IoU) | **0.68** | 0.55 |
+| Green/orange decision correct | 93.9 % | **95.7 %** |
+| Green although there is no tire at all (threshold 0.8) | **0** | 0 |
+| Real phone photos, 3 variants each | 11/12 | **12/12** |
 
-**Ehrlich eingeordnet:** Das eigene Modell ist 8× schneller, 3× kleiner und erkennt Reifen deutlich zuverlässiger.
-Bei der reinen Grün-Entscheidung liegt es knapp hinter der Referenz. Fast alle Fehlentscheidungen sind
-**Grenzfälle**: Der Reifen ist ein paar Prozent zu groß oder knapp neben der Mitte. Der eine Fehler bei den echten
-Fotos ist genau so ein Fall (Größe 1,16 statt max. 1,15). Für einen Positionierungs*hinweis* ist das unkritisch,
-und an der Toleranz lässt sich drehen.
+**An honest assessment:** the custom model is 8× faster, 3× smaller and detects tires much more reliably. On the
+pure green decision it is slightly behind the reference. Almost all wrong decisions are **borderline cases**: the
+tire is a few percent too big or just off-center. The single error on the real photos is exactly such a case
+(size 1.16 instead of max. 1.15). For a positioning *hint* this is uncritical, and the tolerance can be tuned.
 
-## Selbst trainieren
+## Train it yourself
 
 ```bash
 cd train
 python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python fetch_data.py     # Annotationen + ~9.300 Bilder nach train/data (~730 MB, ein paar Minuten)
-.venv/bin/python train.py 12       # 12 Epochen, ~20 min auf Apple Silicon (MPS), sonst CPU/GPU
-.venv/bin/python export.py         # → tirenet.onnx, kopiert nach web/models/
-.venv/bin/python evaluate.py       # Kennzahlen + echte Fotos aus train/realtest
+.venv/bin/python fetch_data.py     # annotations + ~9,300 images into train/data (~730 MB, a few minutes)
+.venv/bin/python train.py 12       # 12 epochs, ~20 min on Apple Silicon (MPS), otherwise CPU/GPU
+.venv/bin/python export.py         # → tirenet.onnx, copied to web/models/
+.venv/bin/python evaluate.py       # metrics + real photos from train/realtest
 ```
 
 ---
 
-# Teil 2 – Das Modell auf der Website
+# Part 2 – The model on the website
 
-## Vom Modell zur Website in drei Schritten
+## From model to website in three steps
 
-**1. Exportieren:** Das trainierte PyTorch-Modell wird eine einzige Datei (`web/models/tirenet.onnx`, 4,3 MB):
+**1. Export:** the trained PyTorch model becomes a single file (`web/models/tirenet.onnx`, 4.3 MB):
 
 ```python
 torch.onnx.export(model, torch.rand(1, 3, 224, 224), "tirenet.onnx",
                   input_names=["images"], output_names=["out"], opset_version=17)
 ```
 
-**2. Im Browser laden:** [ONNX Runtime Web](https://onnxruntime.ai/docs/get-started/with-javascript/web.html)
-führt die Datei per WebAssembly aus. Es braucht keinen Server und kein Framework, die Datei wird einfach statisch
-mit ausgeliefert:
+**2. Load it in the browser:** [ONNX Runtime Web](https://onnxruntime.ai/docs/get-started/with-javascript/web.html)
+runs the file via WebAssembly. No server, no framework; the file is simply served as a static asset:
 
 ```js
 import * as ort from './vendor/ort.wasm.min.mjs';
 const session = await ort.InferenceSession.create('./models/tirenet.onnx', { executionProviders: ['wasm'] });
 ```
 
-**3. Pro Kamerabild ausführen:** Den Ausschnitt um den Kreis in ein 224×224-Canvas zeichnen, die Pixel in ein
-Float-Array schreiben und das Modell aufrufen. Zurück kommen fünf Zahlen (vereinfacht):
+**3. Run it on every camera frame:** draw the crop around the circle into a 224×224 canvas, write the pixels into a
+float array and call the model. It returns five numbers (simplified):
 
 ```js
-ctx.drawImage(video, sx, sy, side, side, 0, 0, 224, 224);           // Ausschnitt um den Kreis
+ctx.drawImage(video, sx, sy, side, side, 0, 0, 224, 224);           // crop around the circle
 const input = new ort.Tensor('float32', toCHW(ctx.getImageData(0, 0, 224, 224)), [1, 3, 224, 224]);
 const { out } = await session.run({ images: input });
-const [p, cx, cy, w, h] = out.data;                                  // Reifen? + Box im Ausschnitt
+const [p, cx, cy, w, h] = out.data;                                  // tire? + box within the crop
 const ok = p >= 0.8 && centerNearCircle(cx, cy) && sizeFitsCircle(w, h);
-ring.classList.toggle('ok', ok);                                     // Kreis grün
+ring.classList.toggle('ok', ok);                                     // circle turns green
 ```
 
-Das dauert ~5 ms pro Bild und läuft in einer Schleife, solange die Kamera an ist. Der vollständige Code steht in
-[`web/app.js`](web/app.js) (~250 Zeilen inklusive Kamera, Overlay und Debug-Anzeige).
+This takes ~5 ms per frame and runs in a loop while the camera is on. The full code is in
+[`web/app.js`](web/app.js) (~250 lines including camera, overlay and debug display).
 
-**Was das für ein echtes Projekt bedeutet:** Das Modell ist ein statisches Asset wie ein Bild oder ein Font. Es
-kann über den normalen Frontend-Build und das CDN ausgeliefert werden. Ein neues Modell einzuspielen heißt, eine
-Datei auszutauschen. Kosten pro Erkennung fallen nicht an, weil alles auf dem Gerät des Nutzers läuft.
-Dazu kommt die Laufzeit selbst: Die WebAssembly-Datei von ONNX Runtime Web ist ~11 MB groß, wird aber nur
-einmal geladen und dann gecacht. Sinnvoll ist es, sie erst nachzuladen, wenn der Nutzer die Kamera öffnet.
+**What this means for a real project:** the model is a static asset like an image or a font. It can be shipped via
+the normal frontend build and CDN. Rolling out a new model means replacing one file. There is no cost per
+detection, because everything runs on the user's device. On top of that comes the runtime itself: the ONNX Runtime
+Web WebAssembly file is ~11 MB, but it is loaded only once and then cached. It makes sense to load it lazily, only
+when the user opens the camera.
 
-## Wie die Demo-Seite funktioniert
+## How the demo page works
 
 ```mermaid
 flowchart LR
-  A[Kamera<br/>getUserMedia 1080p] --> B[Ausschnitt um den Kreis<br/>1,6 × Durchmesser → 224×224]
+  A[Camera<br/>getUserMedia 1080p] --> B[Crop around the circle<br/>1.6 × diameter → 224×224]
   B --> C[TireNet<br/>ONNX Runtime Web, WASM]
   C --> D["[p, cx, cy, w, h]"]
-  D --> E{Reifen da?<br/>Mitte ≤ 0,2 r?<br/>Größe 70–115 %?}
-  E -- 3 Frames ja --> F[Kreis grün + Häkchen]
-  E -- sonst --> G[Kreis orange]
+  D --> E{Tire present?<br/>Center ≤ 0.2 r?<br/>Size 70–115 %?}
+  E -- yes for 3 frames --> F[Circle green + check mark]
+  E -- otherwise --> G[Circle orange]
 ```
 
-- **Kamera und UI:** `<video playsinline>` mit `object-fit: cover` liegt in einem festen Bereich, darüber eine SVG-Maske
-  mit Kreisloch. Die Koordinaten zwischen Video und Bildschirm rechnet `coverTransform()` in
-  [`web/app.js`](web/app.js) um.
-- **Der Trick, der das Modell so klein macht:** Wir brauchen keinen allgemeinen Objektdetektor. Das Modell sieht
-  nur den quadratischen Ausschnitt um den Kreis und beantwortet genau eine Frage: *„Ist hier ein Reifen, und wo
-  genau?“* Das ist eine Klassifikation plus eine Box. Keine Anchor-Boxen, kein NMS, keine 600 Klassen.
-- **Entscheidung:** Grün, wenn die Konfidenz ≥ 0,8 ist, die Box-Mitte höchstens 20 % des Radius von der
-  Kreismitte entfernt liegt und die Box 70–115 % des Kreisdurchmessers groß ist. Damit nichts flackert, wechselt
-  der Zustand erst nach 3 gleichen Frames in Folge.
-- **Laufzeit:** [ONNX Runtime Web](https://onnxruntime.ai/) 1.22 (WASM). Mit COOP/COEP-Headern (`server.mjs`) läuft
-  es mit 4 Threads, auf GitHub Pages mit 1 Thread. Beides ist schnell genug.
-- **Auslöser:** Speichert das volle Kamerabild als JPEG (1080p, ~400–650 KB). Dieses Bild würde an den
-  Erkennungsdienst gehen.
+- **Camera and UI:** a `<video playsinline>` with `object-fit: cover` sits in a fixed area, with an SVG mask with a
+  circular hole on top. `coverTransform()` in [`web/app.js`](web/app.js) converts coordinates between video and
+  screen.
+- **The trick that keeps the model so small:** a general object detector is not needed. The model only sees the
+  square crop around the circle and answers exactly one question: *"Is there a tire here, and where exactly?"* That
+  is one classification plus one box. No anchor boxes, no NMS, no 600 classes.
+- **Decision:** green when the confidence is ≥ 0.8, the box center is at most 20 % of the radius away from the circle
+  center, and the box is 70–115 % of the circle diameter. To avoid flickering, the state only changes after 3
+  identical frames in a row.
+- **Runtime:** [ONNX Runtime Web](https://onnxruntime.ai/) 1.22 (WASM). With COOP/COEP headers (`server.mjs`) it runs
+  on 4 threads, on GitHub Pages on 1 thread. Both are fast enough.
+- **Shutter:** saves the full camera frame as JPEG (1080p, ~400–650 KB). This is the image that would be sent to the
+  recognition service.
 
 ---
 
-## Grenzen und offene Punkte
+## Limitations and open points
 
-- **Trainingsdaten sind Web-Fotos**, keine Handy-Nahaufnahmen von Rädern. Ein paar hundert echte Fotos würden am
-  meisten bringen.
-- **Getestet nur auf iPhone und MacBook.** Ein Android-Gerät der Mittelklasse fehlt noch.
-- **ImageNet-Vortraining:** Die Backbone-Gewichte stammen aus einem Training auf ImageNet. Ob die
-  ImageNet-Nutzungsbedingungen die abgeleiteten Gewichte betreffen, ist rechtlich nicht eindeutig geklärt. Vor
-  einem produktiven Einsatz also kurz mit Legal klären oder das Backbone ohne ImageNet vortrainieren.
-- Das Modell sagt nur „Reifen da und richtig positioniert“, nicht „Foto scharf genug, um die DOT-Nummer zu lesen“.
-  Bildqualität (Schärfe, Licht) wäre ein eigenes Thema.
+- **The training data are web photos**, not phone close-ups of wheels. A few hundred real photos would help most.
+- **Only tested on iPhone and MacBook.** A mid-range Android device is still missing.
+- **ImageNet pre-training:** the backbone weights come from training on ImageNet. Whether the ImageNet terms of use
+  apply to derived weights is not clearly settled legally. Before production use, check with legal or pre-train
+  the backbone without ImageNet.
+- The model only says "tire present and positioned correctly", not "photo sharp enough to read the DOT number".
+  Image quality (sharpness, lighting) would be a separate topic.
 
-## Projektstruktur
+## Project structure
 
 ```
-web/                 statische Demo-Seite (auch für GitHub Pages)
-  index.html, app.js   UI, Kamera, Inferenz-Schleife, Grün-Regel
-  models/tirenet.onnx  das trainierte Modell
+web/                 static demo page (also used for GitHub Pages)
+  index.html, app.js   UI, camera, inference loop, green rule
+  models/tirenet.onnx  the trained model
   vendor/              onnxruntime-web 1.22 (WASM)
-  examples/            Beispielfotos
-train/               Daten, Training, Export, Auswertung (Python)
-server.mjs           lokaler Server mit COOP/COEP (Multi-Thread-WASM) und optional HTTPS
-.github/workflows/   Deployment von web/ auf GitHub Pages
+  examples/            example photos
+train/               data, training, export, evaluation (Python)
+server.mjs           local server with COOP/COEP (multi-threaded WASM) and optional HTTPS
+.github/workflows/   deployment of web/ to GitHub Pages
 ```
 
-## Lizenzen und Quellen
+## Licenses and sources
 
-- **Trainingsdaten:** Open Images V7 von Google. Annotationen [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/),
-  Bilder [CC BY 2.0](https://creativecommons.org/licenses/by/2.0/) (laut Open Images; die Urheber stehen in den
-  Metadaten des Datensatzes). Die Bilder liegen nicht im Repo, `fetch_data.py` lädt sie.
-- **Backbone:** torchvision MobileNetV3-Small, BSD-3-Clause. ImageNet-Gewichte: siehe Grenzen oben.
-- **Laufzeit:** onnxruntime-web 1.22.0, MIT (Microsoft).
-- **Beispielfotos** in `web/examples/` und `train/realtest/`: eigene Aufnahmen.
-- Der Code dieses Repos: ⟨Lizenz festlegen⟩.
+- **Training data:** Open Images V7 by Google. Annotations [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/),
+  images [CC BY 2.0](https://creativecommons.org/licenses/by/2.0/) (according to Open Images; the authors are listed
+  in the dataset's metadata). The images are not part of this repo; `fetch_data.py` downloads them.
+- **Backbone:** torchvision MobileNetV3-Small, BSD-3-Clause. ImageNet weights: see limitations above.
+- **Runtime:** onnxruntime-web 1.22.0, MIT (Microsoft).
+- **Example photos** in `web/examples/` and `train/realtest/`: own photos.
+- Code in this repo: ⟨choose a license⟩.
